@@ -1,14 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod hotkeys;
+mod config;
+
+use hotkeys::{HotkeyModifier, ALL_KEYS};
+use config::{Config, load_config, save_config};
 use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers}, GlobalHotKeyEvent,
+    hotkey::{Code, HotKey}, GlobalHotKeyEvent,
     GlobalHotKeyManager,
 };
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Task};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem}, TrayIcon, TrayIconBuilder,
     TrayIconEvent,
@@ -19,42 +22,16 @@ struct AuthResponse {
     token: String,
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct Config {
-    token: Option<String>,
-}
-
-fn get_config_path() -> PathBuf {
-    std::env::current_exe()
-        .map(|p| p.parent().unwrap_or(&p).join("config.json"))
-        .unwrap_or_else(|_| PathBuf::from("config.json"))
-}
-
-fn load_config() -> Config {
-    let path = get_config_path();
-    if let Ok(content) = fs::read_to_string(path) {
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        Config::default()
-    }
-}
-
-fn save_config(config: &Config) {
-    let path = get_config_path();
-    if let Ok(content) = serde_json::to_string_pretty(config) {
-        let _ = fs::write(path, content);
-    }
-}
-
 struct AdventuriaApp {
     domain: String,
     identity: String,
     password: String,
-    token: Option<String>,
     status_message: String,
-    _hotkey_manager: GlobalHotKeyManager,
+    hotkey_manager: GlobalHotKeyManager,
     hotkey_start_id: u32,
     hotkey_stop_id: u32,
+    config: Config,
+    current_hotkeys: Vec<HotKey>,
     _tray_icon: TrayIcon,
     show_item_id: tray_icon::menu::MenuId,
     quit_item_id: tray_icon::menu::MenuId,
@@ -74,6 +51,10 @@ enum Message {
     MenuEvent(MenuEvent),
     MinimizeToTray,
     WindowOpened(iced::window::Id),
+    StartModifierChanged(HotkeyModifier),
+    StartKeyChanged(Code),
+    StopModifierChanged(HotkeyModifier),
+    StopKeyChanged(Code),
 }
 
 impl Default for AdventuriaApp {
@@ -87,8 +68,15 @@ impl AdventuriaApp {
     fn new() -> (Self, Task<Message>) {
         let config = load_config();
         let hotkey_manager = GlobalHotKeyManager::new().unwrap();
-        let hotkey_start = HotKey::new(Some(Modifiers::ALT), Code::F8);
-        let hotkey_stop = HotKey::new(Some(Modifiers::ALT), Code::F9);
+
+        let hotkey_start = HotKey::new(
+            config.start_modifier.to_global_modifiers(),
+            config.start_key.into(),
+        );
+        let hotkey_stop = HotKey::new(
+            config.stop_modifier.to_global_modifiers(),
+            config.stop_key.into(),
+        );
 
         let hotkey_start_id = hotkey_start.id();
         let hotkey_stop_id = hotkey_stop.id();
@@ -116,11 +104,12 @@ impl AdventuriaApp {
                 domain: "https://adventuria-api.tw1.su".to_string(),
                 identity: "".to_string(),
                 password: "".to_string(),
-                token: config.token,
                 status_message: "Ready".to_string(),
-                _hotkey_manager: hotkey_manager,
+                hotkey_manager,
                 hotkey_start_id,
                 hotkey_stop_id,
+                config,
+                current_hotkeys: vec![hotkey_start, hotkey_stop],
                 _tray_icon: tray_icon,
                 show_item_id,
                 quit_item_id,
@@ -128,6 +117,29 @@ impl AdventuriaApp {
             },
             Task::none(),
         )
+    }
+
+    fn update_hotkeys(&mut self) {
+        let _ = self.hotkey_manager.unregister_all(&self.current_hotkeys);
+
+        let hotkey_start = HotKey::new(
+            self.config.start_modifier.to_global_modifiers(),
+            self.config.start_key.into(),
+        );
+        let hotkey_stop = HotKey::new(
+            self.config.stop_modifier.to_global_modifiers(),
+            self.config.stop_key.into(),
+        );
+
+        self.hotkey_start_id = hotkey_start.id();
+        self.hotkey_stop_id = hotkey_stop.id();
+
+        let _ = self.hotkey_manager.register(hotkey_start);
+        let _ = self.hotkey_manager.register(hotkey_stop);
+
+        self.current_hotkeys = vec![hotkey_start, hotkey_stop];
+
+        save_config(&self.config);
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -179,9 +191,11 @@ impl AdventuriaApp {
             Message::LoginFinished(result) => {
                 match result {
                     Ok(token) => {
-                        self.token = Some(token.clone());
-                        save_config(&Config { token: Some(token) });
+                        self.config.token = Some(token);
+                        save_config(&self.config);
                         self.status_message = "Logged in successfully".to_string();
+                        self.identity = "".to_string();
+                        self.password = "".to_string();
                     }
                     Err(msg) => {
                         self.status_message = msg;
@@ -199,7 +213,7 @@ impl AdventuriaApp {
                 };
 
                 if let Some(action) = action {
-                    if let Some(token) = self.token.clone() {
+                    if let Some(token) = self.config.token.clone() {
                         let domain = self.domain.clone();
                         let action_str = action.to_string();
                         let token_str = token.clone();
@@ -265,6 +279,26 @@ impl AdventuriaApp {
                 self.window_id = Some(id);
                 Task::none()
             }
+            Message::StartModifierChanged(modifier) => {
+                self.config.start_modifier = modifier;
+                self.update_hotkeys();
+                Task::none()
+            }
+            Message::StartKeyChanged(key) => {
+                self.config.start_key = key;
+                self.update_hotkeys();
+                Task::none()
+            }
+            Message::StopModifierChanged(modifier) => {
+                self.config.stop_modifier = modifier;
+                self.update_hotkeys();
+                Task::none()
+            }
+            Message::StopKeyChanged(key) => {
+                self.config.stop_key = key;
+                self.update_hotkeys();
+                Task::none()
+            }
         }
     }
 
@@ -306,9 +340,42 @@ impl AdventuriaApp {
         .max_width(400)
         .align_x(Alignment::Center);
 
-        if self.token.is_some() {
+        if self.config.token.is_some() {
             content = content.push(text("Authenticated").color([0.0, 0.5, 0.0]).size(18));
-            content = content.push(text("Hotkeys enabled: Alt+F8 (Start), Alt+F9 (Stop)").size(14));
+            content = content.push(
+                column![
+                    text("Hotkeys:").size(18),
+                    row![
+                        text("Start:").width(Length::Fixed(50.0)),
+                        pick_list(
+                            &HotkeyModifier::ALL[..],
+                            Some(self.config.start_modifier),
+                            Message::StartModifierChanged
+                        ),
+                        text("+"),
+                        pick_list(
+                            &ALL_KEYS[..],
+                            Some(self.config.start_key),
+                            Message::StartKeyChanged
+                        ),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                    row![
+                        text("Stop:").width(Length::Fixed(50.0)),
+                        pick_list(
+                            &HotkeyModifier::ALL[..],
+                            Some(self.config.stop_modifier),
+                            Message::StopModifierChanged
+                        ),
+                        text("+"),
+                        pick_list(&ALL_KEYS[..], Some(self.config.stop_key), Message::StopKeyChanged),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                ]
+                .spacing(10),
+            );
         }
 
         container(scrollable(content))
