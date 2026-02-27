@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "release" ]
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build on Windows
@@ -27,16 +30,15 @@ jobs:
       - name: Package artifact (zip)
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $exePath = Join-Path "$env:GITHUB_WORKSPACE" "target/release/adventuria-timer.exe"
-          if (!(Test-Path $exePath)) { throw "Executable not found: $exePath" }
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Copy-Item $exePath artifacts/
-          Compress-Archive -Path artifacts/* -DestinationPath adventuria-timer-windows-x86_64.zip -Force
+          Compress-Archive -Path target/release/adventuria-timer.exe -DestinationPath adventuria-timer-windows-x86_64.zip -Force
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
         with:
-          name: adventuria-timer-windows-x86_64
-          path: adventuria-timer-windows-x86_64.zip
-          if-no-files-found: error
+          makeLatest: true
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: "adventuria-timer-windows-x86_64.zip"
+          commit: ${{ github.sha }}
+          tag: "v${{ github.run_number }}"
+          name: "Release v${{ github.run_number }}"
