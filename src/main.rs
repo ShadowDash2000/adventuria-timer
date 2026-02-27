@@ -1,20 +1,49 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    hotkey::{Code, HotKey, Modifiers}, GlobalHotKeyEvent,
+    GlobalHotKeyManager,
 };
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Task};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
-    TrayIcon, TrayIconBuilder, TrayIconEvent,
+    menu::{Menu, MenuEvent, MenuItem}, TrayIcon, TrayIconBuilder,
+    TrayIconEvent,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct AuthResponse {
     token: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct Config {
+    token: Option<String>,
+}
+
+fn get_config_path() -> PathBuf {
+    std::env::current_exe()
+        .map(|p| p.parent().unwrap_or(&p).join("config.json"))
+        .unwrap_or_else(|_| PathBuf::from("config.json"))
+}
+
+fn load_config() -> Config {
+    let path = get_config_path();
+    if let Ok(content) = fs::read_to_string(path) {
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Config::default()
+    }
+}
+
+fn save_config(config: &Config) {
+    let path = get_config_path();
+    if let Ok(content) = serde_json::to_string_pretty(config) {
+        let _ = fs::write(path, content);
+    }
 }
 
 struct AdventuriaApp {
@@ -56,6 +85,7 @@ impl Default for AdventuriaApp {
 
 impl AdventuriaApp {
     fn new() -> (Self, Task<Message>) {
+        let config = load_config();
         let hotkey_manager = GlobalHotKeyManager::new().unwrap();
         let hotkey_start = HotKey::new(Some(Modifiers::ALT), Code::F8);
         let hotkey_stop = HotKey::new(Some(Modifiers::ALT), Code::F9);
@@ -86,7 +116,7 @@ impl AdventuriaApp {
                 domain: "https://adventuria-api.tw1.su".to_string(),
                 identity: "".to_string(),
                 password: "".to_string(),
-                token: None,
+                token: config.token,
                 status_message: "Ready".to_string(),
                 _hotkey_manager: hotkey_manager,
                 hotkey_start_id,
@@ -149,7 +179,8 @@ impl AdventuriaApp {
             Message::LoginFinished(result) => {
                 match result {
                     Ok(token) => {
-                        self.token = Some(token);
+                        self.token = Some(token.clone());
+                        save_config(&Config { token: Some(token) });
                         self.status_message = "Logged in successfully".to_string();
                     }
                     Err(msg) => {
@@ -276,14 +307,8 @@ impl AdventuriaApp {
         .align_x(Alignment::Center);
 
         if self.token.is_some() {
-            content = content.push(
-                text("Authenticated")
-                    .color([0.0, 0.5, 0.0])
-                    .size(18),
-            );
-            content = content.push(
-                text("Hotkeys enabled: Alt+F8 (Start), Alt+F9 (Stop)").size(14),
-            );
+            content = content.push(text("Authenticated").color([0.0, 0.5, 0.0]).size(18));
+            content = content.push(text("Hotkeys enabled: Alt+F8 (Start), Alt+F9 (Stop)").size(14));
         }
 
         container(scrollable(content))
@@ -293,7 +318,6 @@ impl AdventuriaApp {
             .center_y(Length::Fill)
             .into()
     }
-
 }
 
 fn hotkey_subscription() -> iced::Subscription<Message> {
@@ -341,20 +365,24 @@ fn load_icon() -> tray_icon::Icon {
 }
 
 fn main() -> iced::Result {
-    iced::application(AdventuriaApp::default, AdventuriaApp::update, AdventuriaApp::view)
-        .window(iced::window::Settings {
-            size: iced::Size::new(400.0, 450.0),
-            ..Default::default()
-        })
-        .subscription(|_| {
-            iced::Subscription::batch(vec![
-                hotkey_subscription(),
-                tray_subscription(),
-                iced::window::events().map(|(id, event)| match event {
-                    iced::window::Event::Opened { .. } => Message::WindowOpened(id),
-                    _ => Message::WindowOpened(id),
-                }),
-            ])
-        })
-        .run()
+    iced::application(
+        AdventuriaApp::default,
+        AdventuriaApp::update,
+        AdventuriaApp::view,
+    )
+    .window(iced::window::Settings {
+        size: iced::Size::new(400.0, 450.0),
+        ..Default::default()
+    })
+    .subscription(|_| {
+        iced::Subscription::batch(vec![
+            hotkey_subscription(),
+            tray_subscription(),
+            iced::window::events().map(|(id, event)| match event {
+                iced::window::Event::Opened { .. } => Message::WindowOpened(id),
+                _ => Message::WindowOpened(id),
+            }),
+        ])
+    })
+    .run()
 }
