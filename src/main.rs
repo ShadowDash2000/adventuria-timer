@@ -4,7 +4,7 @@ use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
-use iced::widget::{button, column, container, row, text, text_input};
+use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Task};
 use serde::{Deserialize, Serialize};
 use tray_icon::{
@@ -238,7 +238,7 @@ impl AdventuriaApp {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let content = column![
+        let mut content = column![
             text("Adventuria Timer").size(30),
             column![
                 row![
@@ -263,29 +263,34 @@ impl AdventuriaApp {
                 .align_y(Alignment::Center),
             ]
             .spacing(10),
-            button("Login").on_press(Message::LoginPressed),
-            button("Minimize to Tray").on_press(Message::MinimizeToTray),
+            row![
+                button("Login").on_press(Message::LoginPressed),
+                button("Minimize to Tray").on_press(Message::MinimizeToTray),
+            ]
+            .spacing(10),
             text(format!("Status: {}", self.status_message)),
         ]
         .spacing(20)
         .padding(20)
-        .max_width(400);
+        .max_width(400)
+        .align_x(Alignment::Center);
 
-        let content = if self.token.is_some() {
-            column![
-                content,
-                text("Authenticated").color([0.0, 0.5, 0.0]),
-                text("Hotkeys enabled: Alt+F8 (Start), Alt+F9 (Stop)").size(14)
-            ]
-            .spacing(10)
-        } else {
-            column![content]
-        };
+        if self.token.is_some() {
+            content = content.push(
+                text("Authenticated")
+                    .color([0.0, 0.5, 0.0])
+                    .size(18),
+            );
+            content = content.push(
+                text("Hotkeys enabled: Alt+F8 (Start), Alt+F9 (Stop)").size(14),
+            );
+        }
 
-        container(content)
+        container(scrollable(content))
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)
+            .center_y(Length::Fill)
             .into()
     }
 
@@ -338,7 +343,7 @@ fn load_icon() -> tray_icon::Icon {
 fn main() -> iced::Result {
     iced::application(AdventuriaApp::default, AdventuriaApp::update, AdventuriaApp::view)
         .window(iced::window::Settings {
-            size: iced::Size::new(400.0, 350.0),
+            size: iced::Size::new(400.0, 450.0),
             ..Default::default()
         })
         .subscription(|_| {
