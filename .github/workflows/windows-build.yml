@@ -22,7 +22,7 @@ jobs:
           cache-on-failure: true
 
       - name: Build (release)
-        run: cargo build --release --locked
+        run: cargo build --release
 
       - name: Package artifact (zip)
         shell: pwsh
