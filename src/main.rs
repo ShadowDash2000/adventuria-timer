@@ -1,14 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-mod hotkeys;
 mod config;
+mod hotkeys;
+mod log;
 
-use hotkeys::{HotkeyModifier, ALL_KEYS};
-use config::{Config, load_config, save_config};
+use crate::log::setup_panic_hook;
+use config::{load_config, save_config, Config};
 use global_hotkey::{
     hotkey::{Code, HotKey}, GlobalHotKeyEvent,
     GlobalHotKeyManager,
 };
+use hotkeys::{HotkeyModifier, ALL_KEYS};
 use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Task};
 use serde::{Deserialize, Serialize};
@@ -369,7 +370,11 @@ impl AdventuriaApp {
                             Message::StopModifierChanged
                         ),
                         text("+"),
-                        pick_list(&ALL_KEYS[..], Some(self.config.stop_key), Message::StopKeyChanged),
+                        pick_list(
+                            &ALL_KEYS[..],
+                            Some(self.config.stop_key),
+                            Message::StopKeyChanged
+                        ),
                     ]
                     .spacing(10)
                     .align_y(Alignment::Center),
@@ -432,6 +437,8 @@ fn load_icon() -> tray_icon::Icon {
 }
 
 fn main() -> iced::Result {
+    setup_panic_hook();
+
     iced::application(
         AdventuriaApp::default,
         AdventuriaApp::update,
