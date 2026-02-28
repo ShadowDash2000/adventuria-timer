@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub token: Option<String>,
+    pub user_id: Option<String>,
     #[serde(default = "default_start_modifier")]
     pub start_modifier: HotkeyModifier,
     #[serde(default = "default_start_key")]
@@ -34,6 +35,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             token: None,
+            user_id: None,
             start_modifier: default_start_modifier(),
             start_key: default_start_key(),
             stop_modifier: default_stop_modifier(),
