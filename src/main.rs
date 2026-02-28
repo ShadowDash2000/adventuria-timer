@@ -67,6 +67,7 @@ impl Default for AdventuriaApp {
 
 impl AdventuriaApp {
     fn new() -> (Self, Task<Message>) {
+        let mut status_message = "Ready".to_string();
         let config = load_config();
         let hotkey_manager = GlobalHotKeyManager::new().unwrap();
 
@@ -82,8 +83,17 @@ impl AdventuriaApp {
         let hotkey_start_id = hotkey_start.id();
         let hotkey_stop_id = hotkey_stop.id();
 
-        hotkey_manager.register(hotkey_start).unwrap();
-        hotkey_manager.register(hotkey_stop).unwrap();
+        let mut hotkey_errors: Vec<String> = vec![];
+        hotkey_manager.register(hotkey_start).unwrap_or_else(|err| {
+            hotkey_errors.push(format!("Failed to register start hotkey: {err}"));
+        });
+        hotkey_manager.register(hotkey_stop).unwrap_or_else(|err| {
+            hotkey_errors.push(format!("Failed to register stop hotkey: {err}"));
+        });
+
+        if !hotkey_errors.is_empty() {
+            status_message = format!("Hotkey registration failed: {}", hotkey_errors.join(", "));
+        }
 
         let tray_menu = Menu::new();
         let show_item = MenuItem::new("Show", true, None);
@@ -105,7 +115,7 @@ impl AdventuriaApp {
                 domain: "https://adventuria-api.tw1.su".to_string(),
                 identity: "".to_string(),
                 password: "".to_string(),
-                status_message: "Ready".to_string(),
+                status_message,
                 hotkey_manager,
                 hotkey_start_id,
                 hotkey_stop_id,
